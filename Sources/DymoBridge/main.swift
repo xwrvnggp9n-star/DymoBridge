@@ -14,6 +14,7 @@ struct Config {
     var queueOverride: String? = nil
     var dryRun = false
     var rotate180 = true   // match vendor print orientation
+    var adjustTemplates = true
     var captureDir = ("~/Library/Logs/DymoBridge" as NSString).expandingTildeInPath
 }
 
@@ -29,6 +30,7 @@ while !args.isEmpty {
     case "--queue":    config.queueOverride = args.removeFirst()
     case "--dry-run":  config.dryRun = true
     case "--no-rotate180": config.rotate180 = false
+    case "--no-adjust": config.adjustTemplates = false
     case "--capture-dir": config.captureDir = args.removeFirst()
     case "--version":  print(VERSION); exit(0)
     case "--help", "-h":

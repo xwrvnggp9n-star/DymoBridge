@@ -46,9 +46,11 @@ enum LabelRenderer {
             }
             cg.saveGState()
             if object.rotation != 0 {
-                // Rotate the object clockwise around its center (display space).
+                // Rotation direction chosen so the printed output (which is
+                // fed 180°-rotated) reads the way the vendor's physical labels
+                // do — verified against a real vendor-printed tag.
                 cg.translateBy(x: px.midX, y: px.midY)
-                cg.rotate(by: -CGFloat(object.rotation) * .pi / 180)
+                cg.rotate(by: CGFloat(object.rotation) * .pi / 180)
                 cg.translateBy(x: -px.midX, y: -px.midY)
             }
             draw(object, in: contentRect, record: record, cg: cg)

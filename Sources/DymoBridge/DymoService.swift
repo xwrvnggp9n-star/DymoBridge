@@ -85,7 +85,8 @@ final class DymoService {
         }
 
         do {
-            let label = try LabelParser.parseLabel(xml: labelXml)
+            var label = try LabelParser.parseLabel(xml: labelXml)
+            if config.adjustTemplates { TemplateAdjust.apply(&label) }
             let printParams = LabelParser.parsePrintParams(xml: printParamsXml)
             var records = LabelParser.parseLabelSet(xml: labelSetXml)
             if records.isEmpty { records = [LabelRecord(values: [:])] }
@@ -130,7 +131,8 @@ final class DymoService {
         capture(kind: "render", req: req, extra: ["labelXml.xml": labelXml])
         guard !labelXml.isEmpty else { return HTTPResponse(status: 500, body: "") }
         do {
-            let label = try LabelParser.parseLabel(xml: labelXml)
+            var label = try LabelParser.parseLabel(xml: labelXml)
+            if config.adjustTemplates { TemplateAdjust.apply(&label) }
             let png = try LabelRenderer.render(label: label, record: nil)
             // The DLS web service returns the PNG as a quoted base64 JSON string.
             return HTTPResponse(contentType: "application/json; charset=utf-8",
