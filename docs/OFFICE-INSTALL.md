@@ -38,6 +38,11 @@ LabelWriter 550. Takes about 10 minutes. No Terminal needed.
    https://127.0.0.1:41951/
 8. Log into Kipu and print a specimen label as usual. It should print
    exactly like the old vendor-printed tags.
+   - **First print only:** in Kipu's Label Printing popup, click
+     **Select a Printer** and choose **DYMO LabelWriter 550 Turbo**
+     (see below). Kipu remembers the choice after that.
+
+   ![Kipu's Label Printing popup with DYMO LabelWriter 550 Turbo selected](kipu-select-printer.png)
 
 ## If something's off
 
