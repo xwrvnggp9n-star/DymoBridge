@@ -1,22 +1,31 @@
 # DymoBridge
 
-Native Apple Silicon replacement for `DYMO.WebApi.Mac.Host.app` (DYMO Web Services), so Kipu in Chrome can print to DYMO LabelWriter 550 printers without Rosetta and without the vendor's fragile install. The browser-side DYMO JS framework talks to `https://127.0.0.1:41951` unchanged; DymoBridge answers the same API (`StatusConnected`, `GetPrinters`, `PrintLabel`, `RenderLabel`), renders the DLS label XML with CoreGraphics/CoreText, and prints via `lp` through DYMO's own CUPS driver chain — which ships arm64-native, so the 550's genuine-label handshake keeps working.
+Native Apple Silicon replacement for DYMO Web Services (`DYMO.WebApi.Mac.Host.app`), the Intel-only background service that browser apps use to print DYMO labels. Web apps built on DYMO's JS framework (EMRs like Kipu, label designers, custom pages) talk to `https://127.0.0.1:41951` unchanged; DymoBridge answers the same DLS API (`StatusConnected`, `GetPrinters`, `PrintLabel`, `RenderLabel`), renders the DLS label XML natively with CoreGraphics/CoreText, and prints via `lp` through DYMO's own CUPS driver chain — which ships arm64-native, so the LabelWriter 550's genuine-label handshake keeps working. No Rosetta, no fragile vendor cert scheme.
 
-## Build / run
+Why: the vendor app is Intel-only (a Rosetta-EOL time bomb) and its shared-certificate install breaks on macOS updates. DymoBridge is a single ~10 MB Swift binary with a per-machine local CA.
 
-- Swift + SwiftNIO/NIOSSL (only deps): `swift build -c release` → single `dymo-bridge` binary.
-- Deploy (office Macs): `./scripts/build-pkg.sh` on the dev Mac → `dist/DymoBridge-<ver>.pkg`, a double-clickable installer that ships the prebuilt arm64 binary (no dev tools on targets). Its postinstall generates + trusts a per-machine local CA (replaces DYMO's shared cert scheme), disables the vendor web service (reversibly), and starts the LaunchAgent. Staff guide: `docs/OFFICE-INSTALL.md`. Uninstall: `sudo /usr/local/share/dymo-bridge/uninstall.sh` restores the vendor setup.
-- Deploy (dev, from a checkout): `sudo ./scripts/install.sh` — same steps but builds from source on the target.
+## Install
+
+Prereq on target Macs: DYMO's CUPS driver + a working LabelWriter print queue (from the DYMO Connect installer; DymoBridge replaces only the web-service component, reversibly).
+
+- **Installer pkg** (recommended): `./scripts/build-pkg.sh` on a dev Mac → `dist/DymoBridge-<ver>.pkg`, a double-clickable installer that ships the prebuilt arm64 binary — target Macs need no dev tools. Signs + notarizes automatically when Developer ID certs and a `dymo-notary` notarytool profile are present. Its postinstall generates and trusts a per-machine local CA (820-day leaf; rerunning the pkg renews it silently), disables the vendor web service (reversibly), and starts a LaunchAgent.
+- **From a checkout**: `sudo ./scripts/install.sh` — same steps, but builds from source on the target.
+- **Uninstall**: `sudo /usr/local/share/dymo-bridge/uninstall.sh` (or `scripts/uninstall.sh`) — restores the vendor web service.
 - Dev: `.build/debug/dymo-bridge --http --port 41952 --dry-run` (see `--help`).
-- Prereq on target Macs: DYMO's CUPS driver + a working LabelWriter print queue (from DYMO Connect installer; the vendor's web-service component is what gets disabled).
+
+## Template adjustments (optional)
+
+Because the web app sends the label template in every request, site-local layout preferences (e.g. dropping an unused signature row, enlarging the patient block) must be applied bridge-side. Rules live in a JSON file — `--adjust PATH`, or `/usr/local/etc/dymo-bridge/adjust.json` if present; without one, labels render exactly as sent. See `examples/kipu-specimen-adjust.json` for a working example (Kipu specimen labels) and the schema comment in `Sources/DymoBridge/TemplateAdjust.swift`. To bake site rules into your installer pkg, put them at `site/adjust.json` (gitignored) before running `build-pkg.sh`.
 
 ## Architecture
 
+- Swift + SwiftNIO/NIOSSL (only dependencies): `swift build -c release` → single `dymo-bridge` binary.
 - `HTTPServer.swift` — HTTP/1.1 over SwiftNIO, loopback-only, TLS served by NIOSSL from plain PEM files, permissive CORS (browser pages call cross-origin). Deliberately NO keychain anywhere in the TLS path: keychain-held server identities on modern macOS produce permission dialogs a background daemon can't answer (imported-key ACLs pin to the exact importing binary, CLI-imported keys get Apple-only partition lists, and programmatic scratch keychains prompt for their password).
 - `DymoService.swift` — DLS API routes; captures every print/render request (XMLs + rendered PNG) to `~/Library/Logs/DymoBridge/captures/` for replay/tuning; `https://127.0.0.1:41951/` is a human health page.
-- `LabelModel.swift` / `LabelRenderer.swift` / `Barcode.swift` — DieCutLabel XML → 300 dpi PNG (text w/ shrink-to-fit, Code 128/QR via CoreImage, Code 39 native, images, shapes; labelSet substitutions).
-- `PrintQueue.swift` — queue discovery via `lpstat`, media keyword derived from label twips (`w79h252` = points), submit via `lp`.
+- `LabelModel.swift` / `LabelRenderer.swift` / `Barcode.swift` — DieCutLabel XML → 300 dpi PNG (text with shrink-to-fit, Code 128/QR via CoreImage, Code 39 native, images, shapes; labelSet substitutions). Renderer calibrated pixel-wise against the vendor engine's RenderLabel output; labels print 180°-rotated to match vendor behavior (`--no-rotate180` disables).
+- `PrintQueue.swift` — queue discovery via `lpstat`, media keyword derived from label twips, submit via `lp`.
+- `TemplateAdjust.swift` — the config-driven template adjustments described above.
 
-- `TemplateAdjust.swift` — site-specific template tweaks applied post-parse (Chabad specimen label: signature row dropped, patient block enlarged); `--no-adjust` disables.
+## License
 
-Status (1.0.0, 2026-08-31): live end-to-end on Sandy's Mac — real Kipu prints from Chrome through the bridge to the physical LW550 Turbo, layout approved against vendor-printed reference tags (renderer calibrated pixel-wise against the vendor engine's RenderLabel output). Sandy's Mac runs a user-level LaunchAgent (`~/Library/LaunchAgents/com.sklar.dymo-bridge.plist`, binary+certs in `~/Library/Application Support/DymoBridge/`); office Macs use `sudo ./scripts/install.sh`. Next: office pilot. Origin story: vendor app is Intel-only (Rosetta EOL risk) and its cert/install scheme breaks on macOS updates.
+MIT — see `LICENSE`.

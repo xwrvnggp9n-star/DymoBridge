@@ -30,6 +30,13 @@ install -d "$ROOT/usr/local/bin" "$ROOT/usr/local/share/dymo-bridge" \
 install -m 755 .build/arm64-apple-macosx/release/dymo-bridge "$ROOT/usr/local/bin/dymo-bridge"
 install -m 644 deploy/com.sklar.dymo-bridge.plist "$ROOT/Library/LaunchAgents/"
 install -m 755 scripts/uninstall.sh "$ROOT/usr/local/share/dymo-bridge/uninstall.sh"
+# Site-specific template adjustments (gitignored; e.g. cp examples/kipu-specimen-adjust.json
+# site/adjust.json). Baked into the pkg so office installs get the local layout.
+if [[ -f site/adjust.json ]]; then
+    echo "==> including site/adjust.json"
+    install -d "$ROOT/usr/local/etc/dymo-bridge"
+    install -m 644 site/adjust.json "$ROOT/usr/local/etc/dymo-bridge/adjust.json"
+fi
 install -m 755 pkg/scripts/preinstall pkg/scripts/postinstall "$SCRIPTS/"
 install -m 755 scripts/make-certs.sh "$SCRIPTS/make-certs.sh"
 

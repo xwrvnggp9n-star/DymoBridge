@@ -1,6 +1,7 @@
 .build/
 build/
 dist/
+site/
 .DS_Store
 *.p12
 *.pass

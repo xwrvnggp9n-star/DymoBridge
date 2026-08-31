@@ -1,0 +1,17 @@
+{
+  "rules": [
+    {
+      "comment": "Kipu specimen label: drop the unused signature row and spread the patient block (name / DOB / MR# / test codes) into the freed space with larger type. Coordinates are twips, top-left origin.",
+      "trigger": { "objectExists": "TEXT_SIGNATURE" },
+      "remove": ["TEXT_SIGNATURE"],
+      "objects": {
+        "labelFullName":    { "y": 540,  "h": 150 },
+        "TEXT_DOB":         { "y": 770,  "h": 150, "fontScale": 1.2 },
+        "labelDob":         { "x": 800,  "w": 1500, "y": 770,  "h": 150 },
+        "TEXT_MR":          { "y": 1000, "h": 150, "fontScale": 1.2 },
+        "labelMr":          { "x": 800,  "w": 1900, "y": 1000, "h": 150 },
+        "medicalTestCodes": { "y": 1190, "h": 110 }
+      }
+    }
+  ]
+}

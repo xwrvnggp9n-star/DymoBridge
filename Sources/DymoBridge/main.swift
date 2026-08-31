@@ -4,7 +4,7 @@ import Foundation
 // Serves the DYMO DLS web-service API on 127.0.0.1 so browser pages using the
 // DYMO JS framework (e.g. Kipu in Chrome) can print to a LabelWriter via CUPS.
 
-let VERSION = "1.1.1"
+let VERSION = "1.2.0"
 
 struct Config {
     var port: UInt16 = 41951
@@ -15,8 +15,10 @@ struct Config {
     var dryRun = false
     var rotate180 = true   // match vendor print orientation
     var adjustTemplates = true
+    var adjustPath: String? = nil   // nil → use default path if the file exists
     var captureDir = ("~/Library/Logs/DymoBridge" as NSString).expandingTildeInPath
 }
+let DEFAULT_ADJUST_PATH = "/usr/local/etc/dymo-bridge/adjust.json"
 
 var config = Config()
 var args = Array(CommandLine.arguments.dropFirst())
@@ -31,6 +33,7 @@ while !args.isEmpty {
     case "--dry-run":  config.dryRun = true
     case "--no-rotate180": config.rotate180 = false
     case "--no-adjust": config.adjustTemplates = false
+    case "--adjust":   config.adjustPath = args.removeFirst()
     case "--capture-dir": config.captureDir = args.removeFirst()
     case "--version":  print(VERSION); exit(0)
     case "--help", "-h":
@@ -42,6 +45,9 @@ while !args.isEmpty {
         --key PATH        server private key PEM (default /usr/local/etc/dymo-bridge/leaf.key)
         --queue NAME      force a CUPS queue instead of auto-discovering DYMO queues
         --dry-run         render labels but do not submit to CUPS
+        --adjust PATH     template-adjustment rules JSON (default \(DEFAULT_ADJUST_PATH) if present)
+        --no-adjust       disable template adjustments even if a rules file exists
+        --no-rotate180    print in template orientation instead of the vendor's 180° rotation
         --capture-dir DIR log/capture directory (default ~/Library/Logs/DymoBridge)
         """)
         exit(0)
@@ -53,6 +59,13 @@ while !args.isEmpty {
 
 try? FileManager.default.createDirectory(atPath: config.captureDir, withIntermediateDirectories: true)
 Log.setup(dir: config.captureDir)
+if config.adjustTemplates {
+    if let path = config.adjustPath {
+        TemplateAdjust.load(path: path)
+    } else if FileManager.default.fileExists(atPath: DEFAULT_ADJUST_PATH) {
+        TemplateAdjust.load(path: DEFAULT_ADJUST_PATH)
+    }
+}
 Log.info("dymo-bridge \(VERSION) starting; port=\(config.port) tls=\(config.useTLS) dryRun=\(config.dryRun)")
 
 let service = DymoService(config: config)
