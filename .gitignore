@@ -1,0 +1,6 @@
+.build/
+.DS_Store
+*.p12
+*.pass
+ca.pem
+ca.key

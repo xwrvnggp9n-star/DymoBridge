@@ -1,0 +1,8 @@
+<LabelSet>
+  <LabelRecord>
+    <ObjectData Name="PatientName">DOE, JANE</ObjectData>
+    <ObjectData Name="Details">DOB: 03/14/1985  MRN: 98765
+Med: Naltrexone 50mg  QTY: 30</ObjectData>
+    <ObjectData Name="Barcode">MRN98765</ObjectData>
+  </LabelRecord>
+</LabelSet>
