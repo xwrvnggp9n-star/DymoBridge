@@ -4,14 +4,13 @@ import Foundation
 // Serves the DYMO DLS web-service API on 127.0.0.1 so browser pages using the
 // DYMO JS framework (e.g. Kipu in Chrome) can print to a LabelWriter via CUPS.
 
-let VERSION = "0.1.0"
+let VERSION = "0.2.0"
 
 struct Config {
     var port: UInt16 = 41951
     var useTLS = true
-    var useKeychainIdentity = false
-    var p12Path = "/usr/local/etc/dymo-bridge/identity.p12"
-    var p12PassPath = "/usr/local/etc/dymo-bridge/identity.pass"
+    var certPath = "/usr/local/etc/dymo-bridge/leaf.pem"
+    var keyPath = "/usr/local/etc/dymo-bridge/leaf.key"
     var queueOverride: String? = nil
     var dryRun = false
     var captureDir = ("~/Library/Logs/DymoBridge" as NSString).expandingTildeInPath
@@ -24,9 +23,8 @@ while !args.isEmpty {
     switch a {
     case "--port":     config.port = UInt16(args.removeFirst()) ?? config.port
     case "--http":     config.useTLS = false
-    case "--keychain": config.useKeychainIdentity = true
-    case "--p12":      config.p12Path = args.removeFirst()
-    case "--p12-pass": config.p12PassPath = args.removeFirst()
+    case "--cert":     config.certPath = args.removeFirst()
+    case "--key":      config.keyPath = args.removeFirst()
     case "--queue":    config.queueOverride = args.removeFirst()
     case "--dry-run":  config.dryRun = true
     case "--capture-dir": config.captureDir = args.removeFirst()
@@ -36,10 +34,8 @@ while !args.isEmpty {
         dymo-bridge \(VERSION) — native DYMO web-service replacement
         --port N          listen port (default 41951)
         --http            serve plain HTTP (dev only; production must be TLS)
-        --keychain        use the existing CN=localhost SSL identity from the keychain
-                          (e.g. DYMO's own trusted cert) instead of a p12 file
-        --p12 PATH        PKCS#12 identity for TLS (default /usr/local/etc/dymo-bridge/identity.p12)
-        --p12-pass PATH   file containing the p12 passphrase
+        --cert PATH       server certificate PEM (default /usr/local/etc/dymo-bridge/leaf.pem)
+        --key PATH        server private key PEM (default /usr/local/etc/dymo-bridge/leaf.key)
         --queue NAME      force a CUPS queue instead of auto-discovering DYMO queues
         --dry-run         render labels but do not submit to CUPS
         --capture-dir DIR log/capture directory (default ~/Library/Logs/DymoBridge)
@@ -56,18 +52,10 @@ Log.setup(dir: config.captureDir)
 Log.info("dymo-bridge \(VERSION) starting; port=\(config.port) tls=\(config.useTLS) dryRun=\(config.dryRun)")
 
 let service = DymoService(config: config)
-let server: HTTPServer
 do {
-    var identity: SecIdentity? = nil
-    if config.useTLS {
-        if config.useKeychainIdentity {
-            identity = try TLSIdentity.loadFromKeychain(commonName: "localhost")
-        } else {
-            identity = try TLSIdentity.load(p12Path: config.p12Path, passPath: config.p12PassPath)
-            Log.info("loaded TLS identity from \(config.p12Path)")
-        }
-    }
-    server = try HTTPServer(port: config.port, identity: identity) { req in
+    let server = try HTTPServer(port: config.port,
+                                certPath: config.useTLS ? config.certPath : nil,
+                                keyPath: config.useTLS ? config.keyPath : nil) { req in
         service.handle(req)
     }
     try server.start()

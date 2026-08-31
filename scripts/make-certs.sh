@@ -8,10 +8,8 @@ OUT="${1:-/usr/local/etc/dymo-bridge}"
 mkdir -p "$OUT"
 cd "$OUT"
 
-PASS="$(head -c 32 /dev/urandom | base64)"
-
-if [[ -f identity.p12 ]]; then
-    echo "identity.p12 already exists in $OUT — leaving as-is (delete it to regenerate)"
+if [[ -f leaf.pem && -f leaf.key ]]; then
+    echo "leaf.pem/leaf.key already exist in $OUT — leaving as-is (delete them to regenerate)"
     exit 0
 fi
 
@@ -38,17 +36,13 @@ EOF
 openssl x509 -req -in leaf.csr -CA ca.pem -CAkey ca.key -CAcreateserial \
     -out leaf.pem -days 3650 -sha256 -extfile leaf.ext 2>/dev/null
 
-openssl pkcs12 -export -out identity.p12 \
-    -inkey leaf.key -in leaf.pem \
-    -passout "pass:$PASS"
-printf '%s' "$PASS" > identity.pass
-
 # The CA key is only needed to mint the leaf; remove it so it can't sign
-# anything else. Keep ca.pem for keychain trust.
-rm -f ca.key leaf.csr leaf.ext leaf.key leaf.pem ca.srl
-chmod 600 identity.p12 identity.pass
-chmod 644 ca.pem
+# anything else. Keep ca.pem for keychain trust and leaf.pem/leaf.key for the
+# daemon (served in-memory by NIOSSL — never imported into a keychain).
+rm -f ca.key leaf.csr leaf.ext ca.srl
+chmod 600 leaf.key
+chmod 644 ca.pem leaf.pem
 
-echo "wrote $OUT/{ca.pem,identity.p12,identity.pass}"
+echo "wrote $OUT/{ca.pem,leaf.pem,leaf.key}"
 echo "next: trust the CA (install.sh does this):"
 echo "  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain $OUT/ca.pem"
