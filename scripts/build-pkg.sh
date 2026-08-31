@@ -10,6 +10,13 @@ cd "$(dirname "$0")/.."
 VERSION="$(sed -n 's/^let VERSION = "\(.*\)"$/\1/p' Sources/DymoBridge/main.swift)"
 [[ -n "$VERSION" ]] || { echo "could not read VERSION from main.swift"; exit 1; }
 
+# Signing is automatic when the Developer ID certs are in the keychain;
+# notarization when a notarytool profile named "dymo-notary" exists
+# (xcrun notarytool store-credentials dymo-notary --apple-id ... --team-id ...).
+APP_ID="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)"
+INST_ID="$(security find-identity -v -p basic | sed -n 's/.*"\(Developer ID Installer: [^"]*\)".*/\1/p' | head -1)"
+NOTARY_PROFILE=dymo-notary
+
 echo "==> building release binary ($VERSION, arm64)"
 swift build -c release --arch arm64
 
@@ -26,15 +33,42 @@ install -m 755 scripts/uninstall.sh "$ROOT/usr/local/share/dymo-bridge/uninstall
 install -m 755 pkg/scripts/preinstall pkg/scripts/postinstall "$SCRIPTS/"
 install -m 755 scripts/make-certs.sh "$SCRIPTS/make-certs.sh"
 
+if [[ -n "$APP_ID" ]]; then
+    echo "==> codesigning binary ($APP_ID)"
+    # Hardened runtime + timestamp are required for notarization.
+    codesign --force --options runtime --timestamp \
+        --sign "$APP_ID" "$ROOT/usr/local/bin/dymo-bridge"
+else
+    echo "NOTE: no Developer ID Application cert — binary left unsigned"
+fi
+
 echo "==> pkgbuild"
 pkgbuild --root "$ROOT" --scripts "$SCRIPTS" \
     --identifier com.sklar.dymo-bridge --version "$VERSION" \
     --install-location / build/core.pkg
 
 echo "==> productbuild"
+PKG="dist/DymoBridge-$VERSION.pkg"
 sed "s/__VERSION__/$VERSION/" pkg/distribution.xml > build/distribution.xml
-productbuild --distribution build/distribution.xml \
-    --resources pkg/resources --package-path build \
-    "dist/DymoBridge-$VERSION.pkg"
+if [[ -n "$INST_ID" ]]; then
+    productbuild --distribution build/distribution.xml \
+        --resources pkg/resources --package-path build \
+        --sign "$INST_ID" "$PKG"
+else
+    echo "NOTE: no Developer ID Installer cert — pkg left unsigned"
+    productbuild --distribution build/distribution.xml \
+        --resources pkg/resources --package-path build "$PKG"
+fi
 
-echo "wrote dist/DymoBridge-$VERSION.pkg"
+if [[ -n "$INST_ID" ]] && security find-generic-password -s com.apple.gke.notary.tool >/dev/null 2>&1; then
+    echo "==> notarizing (profile: $NOTARY_PROFILE)"
+    xcrun notarytool submit "$PKG" --keychain-profile "$NOTARY_PROFILE" --wait
+    xcrun stapler staple "$PKG"
+    echo "==> Gatekeeper check"
+    spctl -a -vv -t install "$PKG"
+elif [[ -n "$INST_ID" ]]; then
+    echo "NOTE: pkg is signed but NOT notarized — store credentials once with:"
+    echo "  xcrun notarytool store-credentials $NOTARY_PROFILE --apple-id YOUR-APPLE-ID --team-id 5Y3S9Y6Z27"
+fi
+
+echo "wrote $PKG"
