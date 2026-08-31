@@ -1,0 +1,57 @@
+#!/bin/bash
+# DymoBridge pkg postinstall — the GUI-installer equivalent of install.sh.
+# Runs as root from Installer.app. The payload has already placed:
+#   /usr/local/bin/dymo-bridge
+#   /Library/LaunchAgents/com.sklar.dymo-bridge.plist
+#   /usr/local/share/dymo-bridge/uninstall.sh
+set -u
+
+SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
+ETC=/usr/local/etc/dymo-bridge
+CONSOLE_UID="$(stat -f%u /dev/console 2>/dev/null || echo 0)"
+
+echo "==> generating TLS identity (if needed)"
+"$SCRIPTS/make-certs.sh" "$ETC" || exit 1
+# root:staff 640 so the LaunchAgent can read the key no matter which local
+# user is logged in (front-desk Macs may have several accounts).
+chown -R root:staff "$ETC"
+chmod 640 "$ETC/leaf.key"
+
+echo "==> trusting local CA in System keychain"
+security add-trusted-cert -d -r trustRoot \
+    -k /Library/Keychains/System.keychain "$ETC/ca.pem" || exit 1
+
+echo "==> disabling vendor DYMO web service (reversible)"
+VENDOR=/Library/LaunchAgents/com.dymo.dcd.webservice.plist
+if [[ -f "$VENDOR" ]]; then
+    if [[ "$CONSOLE_UID" -ge 500 ]]; then
+        launchctl bootout "gui/$CONSOLE_UID" "$VENDOR" 2>/dev/null || true
+    fi
+    mv "$VENDOR" "$VENDOR.disabled"
+fi
+# Belt and suspenders: persistent launchd disable survives even if the plist
+# comes back (e.g. a DYMO Connect update reinstalls it).
+if [[ "$CONSOLE_UID" -ge 500 ]]; then
+    launchctl disable "gui/$CONSOLE_UID/com.dymo.dcd.webservice" 2>/dev/null || true
+fi
+pkill -f DYMO.WebApi.Mac.Host 2>/dev/null || true
+
+if [[ "$CONSOLE_UID" -lt 500 ]]; then
+    # Installed with no one at the console (MDM / login window). RunAtLoad
+    # starts the agent at next login; nothing to verify now.
+    echo "==> no console user; dymo-bridge will start at next login"
+    exit 0
+fi
+
+echo "==> starting LaunchAgent"
+launchctl bootstrap "gui/$CONSOLE_UID" /Library/LaunchAgents/com.sklar.dymo-bridge.plist 2>/dev/null \
+    || launchctl kickstart -k "gui/$CONSOLE_UID/com.sklar.dymo-bridge" 2>/dev/null || true
+
+sleep 2
+echo "==> verifying"
+if curl -sk --max-time 5 https://127.0.0.1:41951/DYMO/DLS/Printing/StatusConnected | grep -q true; then
+    echo "OK: dymo-bridge is serving on https://127.0.0.1:41951"
+    exit 0
+fi
+echo "ERROR: service did not answer on 41951 — check /tmp/dymo-bridge.err"
+exit 1

@@ -5,7 +5,8 @@ Native Apple Silicon replacement for `DYMO.WebApi.Mac.Host.app` (DYMO Web Servic
 ## Build / run
 
 - Swift + SwiftNIO/NIOSSL (only deps): `swift build -c release` → single `dymo-bridge` binary.
-- Deploy: `sudo ./scripts/install.sh` — builds, generates + trusts a per-machine local CA (replaces DYMO's shared cert scheme), disables the vendor web service (reversibly), installs a LaunchAgent. `sudo ./scripts/uninstall.sh` restores the vendor setup.
+- Deploy (office Macs): `./scripts/build-pkg.sh` on the dev Mac → `dist/DymoBridge-<ver>.pkg`, a double-clickable installer that ships the prebuilt arm64 binary (no dev tools on targets). Its postinstall generates + trusts a per-machine local CA (replaces DYMO's shared cert scheme), disables the vendor web service (reversibly), and starts the LaunchAgent. Staff guide: `docs/OFFICE-INSTALL.md`. Uninstall: `sudo /usr/local/share/dymo-bridge/uninstall.sh` restores the vendor setup.
+- Deploy (dev, from a checkout): `sudo ./scripts/install.sh` — same steps but builds from source on the target.
 - Dev: `.build/debug/dymo-bridge --http --port 41952 --dry-run` (see `--help`).
 - Prereq on target Macs: DYMO's CUPS driver + a working LabelWriter print queue (from DYMO Connect installer; the vendor's web-service component is what gets disabled).
 

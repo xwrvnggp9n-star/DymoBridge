@@ -1,0 +1,10 @@
+#!/bin/bash
+# Stop any running bridge so the payload can replace the binary (upgrades,
+# and dev Macs where the same label runs from ~/Library/LaunchAgents).
+CONSOLE_UID="$(stat -f%u /dev/console 2>/dev/null || echo 0)"
+if [[ "$CONSOLE_UID" -ge 500 ]]; then
+    launchctl bootout "gui/$CONSOLE_UID" /Library/LaunchAgents/com.sklar.dymo-bridge.plist 2>/dev/null || true
+    launchctl bootout "gui/$CONSOLE_UID/com.sklar.dymo-bridge" 2>/dev/null || true
+fi
+pkill -f "/usr/local/bin/dymo-bridge" 2>/dev/null || true
+exit 0

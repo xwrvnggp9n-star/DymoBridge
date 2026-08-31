@@ -4,7 +4,7 @@ import Foundation
 // Serves the DYMO DLS web-service API on 127.0.0.1 so browser pages using the
 // DYMO JS framework (e.g. Kipu in Chrome) can print to a LabelWriter via CUPS.
 
-let VERSION = "1.0.0"
+let VERSION = "1.1.0"
 
 struct Config {
     var port: UInt16 = 41951

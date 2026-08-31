@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>DymoBridge</title>
+    <options customize="never" require-scripts="true" hostArchitectures="arm64" rootVolumeOnly="true"/>
+    <allowed-os-versions>
+        <os-version min="13.0"/>
+    </allowed-os-versions>
+    <welcome file="welcome.html"/>
+    <conclusion file="conclusion.html"/>
+    <installation-check script="checkDymoDriver()"/>
+    <script><![CDATA[
+function checkDymoDriver() {
+    if (!system.files.fileExistsAtPath('/Library/Printers/DYMO')) {
+        my.result.title = 'DYMO printer driver not found';
+        my.result.message = 'Install DYMO Connect for Desktop first (it provides the LabelWriter driver), then run this installer. You can continue anyway, but printing will not work until the driver is installed.';
+        my.result.type = 'Warn';
+        return false;
+    }
+    return true;
+}
+]]></script>
+    <choices-outline>
+        <line choice="default">
+            <line choice="core"/>
+        </line>
+    </choices-outline>
+    <choice id="default"/>
+    <choice id="core" visible="false">
+        <pkg-ref id="com.sklar.dymo-bridge"/>
+    </choice>
+    <pkg-ref id="com.sklar.dymo-bridge" version="__VERSION__" onConclusion="none">core.pkg</pkg-ref>
+</installer-gui-script>

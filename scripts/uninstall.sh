@@ -1,5 +1,7 @@
 #!/bin/bash
 # Removes DymoBridge and restores the vendor DYMO web service.
+# Works for both install styles (sudo ./scripts/install.sh and the pkg;
+# the pkg places a copy at /usr/local/share/dymo-bridge/uninstall.sh).
 #   sudo ./scripts/uninstall.sh
 set -euo pipefail
 if [[ $EUID -ne 0 ]]; then echo "run with sudo"; exit 1; fi
@@ -17,7 +19,11 @@ rm -rf /usr/local/etc/dymo-bridge
 VENDOR=/Library/LaunchAgents/com.dymo.dcd.webservice.plist
 if [[ -f "$VENDOR.disabled" ]]; then
     mv "$VENDOR.disabled" "$VENDOR"
+    launchctl enable "gui/$CONSOLE_UID/com.dymo.dcd.webservice" 2>/dev/null || true
     launchctl bootstrap "gui/$CONSOLE_UID" "$VENDOR" 2>/dev/null || true
     echo "vendor DYMO web service restored"
 fi
+
+rm -rf /usr/local/share/dymo-bridge
+pkgutil --forget com.sklar.dymo-bridge 2>/dev/null || true
 echo "DymoBridge removed"
