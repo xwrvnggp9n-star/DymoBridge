@@ -25,10 +25,8 @@ LabelWriter 550. Takes about 10 minutes. No Terminal needed.
 ## Part 2 — DymoBridge (~2 min)
 
 5. Double-click **DymoBridge-1.1.0.pkg** and click through the installer.
-   Enter the admin password when asked.
-   - If macOS blocks it ("cannot verify the developer"): open
-     **System Settings → Privacy & Security**, scroll down, and click
-     **Open Anyway**, then run it again.
+   Enter the admin password when asked. (The installer is signed and
+   notarized, so macOS opens it without complaint.)
 6. That's it. The installer starts DymoBridge in the background, sets up its
    security certificate, and turns off DYMO's own web service (reversibly).
    Nothing to open or configure.

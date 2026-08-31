@@ -60,7 +60,9 @@ else
         --resources pkg/resources --package-path build "$PKG"
 fi
 
-if [[ -n "$INST_ID" ]] && security find-generic-password -s com.apple.gke.notary.tool >/dev/null 2>&1; then
+# Probe via notarytool itself: profiles live in the data-protection keychain,
+# which `security find-generic-password` cannot see.
+if [[ -n "$INST_ID" ]] && xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
     echo "==> notarizing (profile: $NOTARY_PROFILE)"
     xcrun notarytool submit "$PKG" --keychain-profile "$NOTARY_PROFILE" --wait
     xcrun stapler staple "$PKG"
