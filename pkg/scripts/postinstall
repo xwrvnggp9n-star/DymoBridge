@@ -13,9 +13,12 @@ CONSOLE_UID="$(stat -f%u /dev/console 2>/dev/null || echo 0)"
 echo "==> generating TLS identity (if needed)"
 "$SCRIPTS/make-certs.sh" "$ETC" || exit 1
 # root:staff 640 so the LaunchAgent can read the key no matter which local
-# user is logged in (front-desk Macs may have several accounts).
+# user is logged in (front-desk Macs may have several accounts). The CA key
+# stays root-only — it's needed only at renewal, which runs as root here.
 chown -R root:staff "$ETC"
 chmod 640 "$ETC/leaf.key"
+chown root:wheel "$ETC/ca.key" 2>/dev/null || true
+chmod 600 "$ETC/ca.key" 2>/dev/null || true
 
 echo "==> trusting local CA in System keychain"
 security add-trusted-cert -d -r trustRoot \

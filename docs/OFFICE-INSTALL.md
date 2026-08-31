@@ -8,7 +8,7 @@ LabelWriter 550. Takes about 10 minutes. No Terminal needed.
 - Apple Silicon Mac (M1 or newer), macOS 13 or later, and an **admin login**
 - DYMO LabelWriter 550 / 550 Turbo, its power + USB cables, genuine DYMO labels
 - Two installers: **DYMO Connect for Desktop** (Mac version, from DYMO) and
-  **DymoBridge-1.1.0.pkg** (from Sandy)
+  the **DymoBridge installer pkg** (from Sandy)
 
 ## Part 1 — DYMO driver (~5 min)
 
@@ -24,7 +24,7 @@ LabelWriter 550. Takes about 10 minutes. No Terminal needed.
 
 ## Part 2 — DymoBridge (~2 min)
 
-5. Double-click **DymoBridge-1.1.0.pkg** and click through the installer.
+5. Double-click the **DymoBridge pkg** and click through the installer.
    Enter the admin password when asked. (The installer is signed and
    notarized, so macOS opens it without complaint.)
 6. That's it. The installer starts DymoBridge in the background, sets up its
@@ -47,6 +47,8 @@ LabelWriter 550. Takes about 10 minutes. No Terminal needed.
   the printer shows in Printers & Scanners (Part 1, step 4).
 - **Printer's light flashes / labels come out blank** — the 550 requires
   genuine DYMO-brand labels; check the roll is DYMO and loaded correctly.
+- **Security warning comes back after ~2 years** — the certificate expired;
+  run the DymoBridge pkg again (it renews silently).
 - **Remove DymoBridge** (restores DYMO's web service): have an admin run
   `/usr/local/share/dymo-bridge/uninstall.sh` in Terminal with `sudo`.
 
