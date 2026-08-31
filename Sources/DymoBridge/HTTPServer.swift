@@ -59,12 +59,87 @@ struct HTTPResponse {
 }
 
 enum TLSIdentity {
+
+    // Loads an SSL-server identity already present in the keychain (e.g. the
+    // one DYMO's installer imports into the System keychain as CN=localhost
+    // with open access). Prefers an identity the system actually trusts for
+    // SSL, since that is exactly what Chrome will evaluate.
+    static func loadFromKeychain(commonName: String) throws -> SecIdentity {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassIdentity,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+            kSecReturnRef as String: true,
+        ]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let items = result as? [AnyObject], !items.isEmpty else {
+            throw NSError(domain: "DymoBridge", code: Int(status),
+                          userInfo: [NSLocalizedDescriptionKey: "no keychain identities (status \(status))"])
+        }
+        var fallback: SecIdentity?
+        for item in items {
+            let identity = item as! SecIdentity
+            var certOpt: SecCertificate?
+            guard SecIdentityCopyCertificate(identity, &certOpt) == errSecSuccess,
+                  let cert = certOpt,
+                  let cn = SecCertificateCopySubjectSummary(cert) as String?,
+                  cn == commonName else { continue }
+            let policy = SecPolicyCreateSSL(true, commonName as CFString)
+            var trustOpt: SecTrust?
+            if SecTrustCreateWithCertificates(cert, policy, &trustOpt) == errSecSuccess,
+               let trust = trustOpt, SecTrustEvaluateWithError(trust, nil) {
+                Log.info("using system-trusted keychain identity CN=\(cn)")
+                return identity
+            }
+            if fallback == nil { fallback = identity }
+        }
+        if let f = fallback {
+            Log.info("using keychain identity CN=\(commonName) (not system-trusted — browser may warn)")
+            return f
+        }
+        throw NSError(domain: "DymoBridge", code: -2,
+                      userInfo: [NSLocalizedDescriptionKey: "no keychain identity with CN=\(commonName)"])
+    }
+
+    // Imports the p12 into a throwaway keychain created fresh at each launch.
+    // Importing into the login keychain is a trap: the private key's ACL binds
+    // to the exact binary that first imported it, so any rebuilt/upgraded
+    // binary silently hangs in the TLS handshake waiting on a permission
+    // dialog no background process can show. A fresh temp keychain gives the
+    // current binary a fresh ACL every time.
+    private static func makeScratchKeychain() -> SecKeychain? {
+        let dir = ("~/Library/Application Support/DymoBridge" as NSString).expandingTildeInPath
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        // Sweep scratch keychains from previous runs.
+        if let entries = try? FileManager.default.contentsOfDirectory(atPath: dir) {
+            for entry in entries where entry.hasPrefix("scratch-") && entry.hasSuffix(".keychain") {
+                try? FileManager.default.removeItem(atPath: (dir as NSString).appendingPathComponent(entry))
+            }
+        }
+        let path = (dir as NSString).appendingPathComponent("scratch-\(getpid()).keychain")
+        var password = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, password.count, &password) == errSecSuccess else { return nil }
+        var keychain: SecKeychain?
+        let status = path.withCString { cPath in
+            SecKeychainCreate(cPath, UInt32(password.count), &password, false, nil, &keychain)
+        }
+        guard status == errSecSuccess else {
+            Log.error("scratch keychain creation failed (status \(status)) — falling back to default keychain")
+            return nil
+        }
+        return keychain
+    }
+
     static func load(p12Path: String, passPath: String) throws -> SecIdentity {
         let p12 = try Data(contentsOf: URL(fileURLWithPath: p12Path))
         let pass = (try? String(contentsOf: URL(fileURLWithPath: passPath), encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         var items: CFArray?
-        let opts = [kSecImportExportPassphrase as String: pass] as CFDictionary
+        var options: [String: Any] = [kSecImportExportPassphrase as String: pass]
+        if let scratch = makeScratchKeychain() {
+            options[kSecImportExportKeychain as String] = scratch
+        }
+        let opts = options as CFDictionary
         let status = SecPKCS12Import(p12 as CFData, opts, &items)
         guard status == errSecSuccess,
               let arr = items as? [[String: Any]],

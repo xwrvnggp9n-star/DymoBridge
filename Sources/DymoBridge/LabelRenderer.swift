@@ -36,6 +36,14 @@ enum LabelRenderer {
 
         for object in label.objects {
             let px = pxRect(object.bounds, canvasHeightPx: Double(heightPx))
+            // For 90/270 rotations the Bounds describe the on-label footprint;
+            // content lays out in a width/height-swapped rect that shares the
+            // same center, then rotates into the footprint.
+            var contentRect = px
+            if object.rotation == 90 || object.rotation == 270 {
+                contentRect = CGRect(x: px.midX - px.height / 2, y: px.midY - px.width / 2,
+                                     width: px.height, height: px.width)
+            }
             cg.saveGState()
             if object.rotation != 0 {
                 // Rotate the object clockwise around its center (display space).
@@ -43,7 +51,7 @@ enum LabelRenderer {
                 cg.rotate(by: -CGFloat(object.rotation) * .pi / 180)
                 cg.translateBy(x: -px.midX, y: -px.midY)
             }
-            draw(object, in: px, record: record, cg: cg)
+            draw(object, in: contentRect, record: record, cg: cg)
             cg.restoreGState()
         }
 
@@ -136,25 +144,74 @@ enum LabelRenderer {
         return out
     }
 
+    private static func measure(_ s: NSAttributedString, wrapWidth: CGFloat?) -> CGRect {
+        s.boundingRect(with: NSSize(width: wrapWidth ?? .greatestFiniteMagnitude,
+                                    height: .greatestFiniteMagnitude),
+                       options: [.usesLineFragmentOrigin])
+    }
+
     private static func drawText(runs: [StyledRun], hAlign: HAlign, vAlign: VAlign, fit: FitMode, in rect: CGRect) {
         guard runs.contains(where: { !$0.text.isEmpty }) else { return }
+        let fullText = runs.map(\.text).joined()
+        let isSingleLine = !fullText.contains("\n") && !fullText.contains("\r")
+
         var scale = 1.0
         var str = attributed(runs: runs, hAlign: hAlign, scale: scale)
-        var measured = str.boundingRect(with: NSSize(width: rect.width, height: .greatestFiniteMagnitude),
-                                        options: [.usesLineFragmentOrigin])
-        if fit != .none {
-            var attempts = 0
-            while (measured.height > rect.height || measured.width > rect.width),
-                  scale > 0.15, attempts < 40 {
-                scale *= 0.92
-                attempts += 1
+        var measured: CGRect
+        var useWrapping = !isSingleLine
+
+        if isSingleLine {
+            // Single-line source (IDs, field captions, signature rules) never
+            // word-wraps: a wrapped specimen ID or a stray underscore row
+            // bleeding into the neighbor below is worse than smaller type.
+            // ShrinkToFit honors both box dimensions (these templates set type
+            // size via short boxes); None shrinks for width only, letting
+            // glyphs complete past a cap-height box.
+            measured = measure(str, wrapWidth: nil)
+            let widthScale = measured.width > rect.width ? rect.width / measured.width : 1.0
+            let heightScale = (fit != .none && measured.height > rect.height)
+                ? rect.height / measured.height : 1.0
+            scale = min(widthScale, heightScale) * 0.98
+            if scale < 0.98 {
                 str = attributed(runs: runs, hAlign: hAlign, scale: scale)
-                measured = str.boundingRect(with: NSSize(width: rect.width, height: .greatestFiniteMagnitude),
-                                            options: [.usesLineFragmentOrigin])
+                measured = measure(str, wrapWidth: nil)
+                while (measured.width > rect.width
+                       || (fit != .none && measured.height > rect.height)),
+                      scale > 0.1 {
+                    scale *= 0.97
+                    str = attributed(runs: runs, hAlign: hAlign, scale: scale)
+                    measured = measure(str, wrapWidth: nil)
+                }
+            } else {
+                scale = 1.0
+            }
+        } else {
+            measured = measure(str, wrapWidth: rect.width)
+        }
+
+        if useWrapping {
+            measured = measure(str, wrapWidth: rect.width)
+            if fit != .none {
+                var attempts = 0
+                while (measured.height > rect.height || measured.width > rect.width),
+                      scale > 0.15, attempts < 40 {
+                    scale *= 0.92
+                    attempts += 1
+                    str = attributed(runs: runs, hAlign: hAlign, scale: scale)
+                    measured = measure(str, wrapWidth: rect.width)
+                }
             }
         }
+
+        // Glyphs may complete past a too-short box (a 12pt "DOB" in a
+        // cap-height box), but overflow is capped at whole-line boundaries so
+        // extra lines never bleed into neighboring objects.
+        let probe = NSAttributedString(string: "Ag", attributes: [.font: font(for: runs[0], scale: scale)])
+        let oneLine = measure(probe, wrapWidth: nil).height
+        let wholeLines = max(1.0, (rect.height / max(oneLine, 1)).rounded(.down))
+        let textHeight = min(measured.height, wholeLines * oneLine)
+
         var target = rect
-        let textHeight = min(measured.height, rect.height)
         // NSString drawing lays text from the top of the given rect (it manages
         // its own flip), so adjust the rect's top edge for vertical alignment.
         switch vAlign {
@@ -165,6 +222,10 @@ enum LabelRenderer {
                             width: rect.width, height: textHeight)
         case .bottom:
             target = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: textHeight)
+        }
+        // A hair of slack so rounding never re-wraps a fitted single line.
+        if isSingleLine && !useWrapping {
+            target.size.width = max(target.width, measured.width + 1)
         }
         str.draw(with: target, options: [.usesLineFragmentOrigin])
     }
