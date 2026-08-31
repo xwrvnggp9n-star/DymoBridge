@@ -62,6 +62,34 @@ enum LabelRenderer {
         return png
     }
 
+    // Rotate a rendered PNG 180° for printing: the vendor's print path feeds
+    // labels this way, so matching keeps the physical output orientation
+    // (tear-off edge, peel direction) identical to what staff are used to.
+    static func rotate180(png: Data) throws -> Data {
+        guard let src = NSBitmapImageRep(data: png), let cgImage = src.cgImage else {
+            throw LabelParseError.invalid("rotate180: could not decode PNG")
+        }
+        let w = cgImage.width, h = cgImage.height
+        guard let ctx = CGContext(data: nil, width: w, height: h,
+                                  bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            throw LabelParseError.invalid("rotate180: context failed")
+        }
+        ctx.translateBy(x: CGFloat(w), y: CGFloat(h))
+        ctx.rotate(by: .pi)
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
+        guard let rotated = ctx.makeImage() else {
+            throw LabelParseError.invalid("rotate180: render failed")
+        }
+        let rep = NSBitmapImageRep(cgImage: rotated)
+        rep.size = src.size   // preserve the 300 dpi physical-size tag for CUPS
+        guard let out = rep.representation(using: .png, properties: [:]) else {
+            throw LabelParseError.invalid("rotate180: PNG encode failed")
+        }
+        return out
+    }
+
     // twips top-left rect -> pixel bottom-up rect
     private static func pxRect(_ r: CGRect, canvasHeightPx: Double) -> CGRect {
         let s = pxPerTwip
@@ -164,20 +192,20 @@ enum LabelRenderer {
             // Single-line source (IDs, field captions, signature rules) never
             // word-wraps: a wrapped specimen ID or a stray underscore row
             // bleeding into the neighbor below is worse than smaller type.
-            // ShrinkToFit honors both box dimensions (these templates set type
-            // size via short boxes); None shrinks for width only, letting
-            // glyphs complete past a cap-height box.
+            // Height semantics match DLS (verified against the vendor
+            // renderer's output for the same XML): the box height bounds the
+            // glyphs' CAP height, not the full line height — descenders hang
+            // below the box. Width overflow shrinks further.
             measured = measure(str, wrapWidth: nil)
+            let baseFont = font(for: runs[0], scale: 1.0)
+            let capHeight = baseFont.capHeight
             let widthScale = measured.width > rect.width ? rect.width / measured.width : 1.0
-            let heightScale = (fit != .none && measured.height > rect.height)
-                ? rect.height / measured.height : 1.0
+            let heightScale = capHeight > rect.height ? rect.height / capHeight : 1.0
             scale = min(widthScale, heightScale) * 0.98
             if scale < 0.98 {
                 str = attributed(runs: runs, hAlign: hAlign, scale: scale)
                 measured = measure(str, wrapWidth: nil)
-                while (measured.width > rect.width
-                       || (fit != .none && measured.height > rect.height)),
-                      scale > 0.1 {
+                while measured.width > rect.width, scale > 0.1 {
                     scale *= 0.97
                     str = attributed(runs: runs, hAlign: hAlign, scale: scale)
                     measured = measure(str, wrapWidth: nil)
@@ -211,12 +239,22 @@ enum LabelRenderer {
         let wholeLines = max(1.0, (rect.height / max(oneLine, 1)).rounded(.down))
         let textHeight = min(measured.height, wholeLines * oneLine)
 
+        // Cap-height anchoring: when the box bounds cap height, the glyph line
+        // extends above the box top by (ascender - capHeight); shift up so the
+        // caps sit exactly at the box top and descenders hang below.
+        var capAdjust: CGFloat = 0
+        if isSingleLine && !useWrapping {
+            let f = font(for: runs[0], scale: scale)
+            capAdjust = max(0, f.ascender - f.capHeight)
+        }
+
         var target = rect
         // NSString drawing lays text from the top of the given rect (it manages
         // its own flip), so adjust the rect's top edge for vertical alignment.
         switch vAlign {
         case .top:
-            target = CGRect(x: rect.minX, y: rect.maxY - textHeight, width: rect.width, height: textHeight)
+            target = CGRect(x: rect.minX, y: rect.maxY - textHeight + capAdjust,
+                            width: rect.width, height: textHeight)
         case .middle:
             target = CGRect(x: rect.minX, y: rect.minY + (rect.height - textHeight) / 2,
                             width: rect.width, height: textHeight)
@@ -254,8 +292,15 @@ enum LabelRenderer {
             let square = CGRect(x: barRect.midX - side / 2, y: barRect.midY - side / 2, width: side, height: side)
             cg.draw(symbol, in: square)
         } else {
-            // Scale bars to integral module multiples where possible for crisp edges.
-            cg.draw(symbol, in: barRect)
+            // Match DLS: bars at the largest integral module multiple that
+            // fits the box, centered — never stretched edge to edge. Crisp
+            // modules and vendor-like proportions.
+            let naturalWidth = CGFloat(symbol.width)
+            let moduleScale = max(1, (barRect.width / naturalWidth).rounded(.down))
+            let drawWidth = min(naturalWidth * moduleScale, barRect.width)
+            let drawRect = CGRect(x: barRect.midX - drawWidth / 2, y: barRect.minY,
+                                  width: drawWidth, height: barRect.height)
+            cg.draw(symbol, in: drawRect)
         }
         cg.restoreGState()
 

@@ -101,7 +101,8 @@ final class DymoService {
 
             var allOK = true
             for (i, record) in records.enumerated() {
-                let png = try LabelRenderer.render(label: label, record: record)
+                var png = try LabelRenderer.render(label: label, record: record)
+                if config.rotate180 { png = try LabelRenderer.rotate180(png: png) }
                 let pngPath = (captureDir as NSString).appendingPathComponent("rendered-\(i).png")
                 try png.write(to: URL(fileURLWithPath: pngPath))
                 let ok = PrintQueue.submit(pngPath: pngPath, queue: target.name, media: media,
