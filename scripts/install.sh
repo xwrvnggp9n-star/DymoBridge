@@ -29,6 +29,9 @@ if [[ -f "$VENDOR" ]]; then
     launchctl bootout "gui/$CONSOLE_UID" "$VENDOR" 2>/dev/null || true
     mv "$VENDOR" "$VENDOR.disabled"
 fi
+# Belt and suspenders: persistent launchd disable survives even if the plist
+# comes back (e.g. a DYMO Connect update reinstalls it).
+launchctl disable "gui/$CONSOLE_UID/com.dymo.dcd.webservice" 2>/dev/null || true
 pkill -f DYMO.WebApi.Mac.Host 2>/dev/null || true
 
 echo "==> installing LaunchAgent"

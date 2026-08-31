@@ -16,4 +16,6 @@ Native Apple Silicon replacement for `DYMO.WebApi.Mac.Host.app` (DYMO Web Servic
 - `LabelModel.swift` / `LabelRenderer.swift` / `Barcode.swift` — DieCutLabel XML → 300 dpi PNG (text w/ shrink-to-fit, Code 128/QR via CoreImage, Code 39 native, images, shapes; labelSet substitutions).
 - `PrintQueue.swift` — queue discovery via `lpstat`, media keyword derived from label twips (`w79h252` = points), submit via `lp`.
 
-Status: API + renderer + TLS verified locally against the vendor service's behavior; awaiting first capture of real Kipu traffic to confirm framework variant + label format, then office pilot. Origin story: vendor app is Intel-only (Rosetta EOL risk) and its cert/install scheme breaks on macOS updates.
+- `TemplateAdjust.swift` — site-specific template tweaks applied post-parse (Chabad specimen label: signature row dropped, patient block enlarged); `--no-adjust` disables.
+
+Status (1.0.0, 2026-08-31): live end-to-end on Sandy's Mac — real Kipu prints from Chrome through the bridge to the physical LW550 Turbo, layout approved against vendor-printed reference tags (renderer calibrated pixel-wise against the vendor engine's RenderLabel output). Sandy's Mac runs a user-level LaunchAgent (`~/Library/LaunchAgents/com.sklar.dymo-bridge.plist`, binary+certs in `~/Library/Application Support/DymoBridge/`); office Macs use `sudo ./scripts/install.sh`. Next: office pilot. Origin story: vendor app is Intel-only (Rosetta EOL risk) and its cert/install scheme breaks on macOS updates.
