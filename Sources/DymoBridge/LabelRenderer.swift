@@ -282,8 +282,9 @@ enum LabelRenderer {
         var textRect = CGRect.zero
         if showText && !Barcode.isSquareSymbology(type) {
             let textHeight = min(rect.height * 0.25, 12.0 * dpi / 72.0)
-            barRect = CGRect(x: rect.minX, y: rect.minY + textHeight,
-                             width: rect.width, height: rect.height - textHeight)
+            let gap = min(12.0, rect.height * 0.06)   // breathing room bars↔caption
+            barRect = CGRect(x: rect.minX, y: rect.minY + textHeight + gap,
+                             width: rect.width, height: rect.height - textHeight - gap)
             textRect = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: textHeight)
         }
         cg.saveGState()

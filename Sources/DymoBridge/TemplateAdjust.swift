@@ -21,11 +21,11 @@ enum TemplateAdjust {
         // right so the wider captions don't crowd them.
         struct Row { var x: Double?; var w: Double?; var y: Double; var h: Double; var fontScale: Double? }
         let rows: [String: Row] = [
-            "labelFullName":    Row(x: nil, w: nil, y: 540, h: 170, fontScale: nil),
-            "TEXT_DOB":         Row(x: nil, w: nil, y: 770, h: 170, fontScale: 1.2),
-            "labelDob":         Row(x: 800, w: 1500, y: 770, h: 170, fontScale: nil),
-            "TEXT_MR":          Row(x: nil, w: nil, y: 1000, h: 170, fontScale: 1.2),
-            "labelMr":          Row(x: 800, w: 1900, y: 1000, h: 170, fontScale: nil),
+            "labelFullName":    Row(x: nil, w: nil, y: 540, h: 150, fontScale: nil),
+            "TEXT_DOB":         Row(x: nil, w: nil, y: 770, h: 150, fontScale: 1.2),
+            "labelDob":         Row(x: 800, w: 1500, y: 770, h: 150, fontScale: nil),
+            "TEXT_MR":          Row(x: nil, w: nil, y: 1000, h: 150, fontScale: 1.2),
+            "labelMr":          Row(x: 800, w: 1900, y: 1000, h: 150, fontScale: nil),
             "medicalTestCodes": Row(x: nil, w: nil, y: 1190, h: 110, fontScale: nil),
         ]
 
