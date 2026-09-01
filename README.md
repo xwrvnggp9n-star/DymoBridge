@@ -15,7 +15,7 @@ Prereq on target Macs: DYMO's CUPS driver + a working LabelWriter print queue (f
 
 ## Template adjustments (optional)
 
-Because the web app sends the label template in every request, site-local layout preferences (e.g. dropping an unused signature row, enlarging the patient block) must be applied bridge-side. Rules live in a JSON file — `--adjust PATH`, or `/usr/local/etc/dymo-bridge/adjust.json` if present; without one, labels render exactly as sent. See `examples/kipu-specimen-adjust.json` for a working example (Kipu specimen labels) and the schema comment in `Sources/DymoBridge/TemplateAdjust.swift`. To bake site rules into your installer pkg, put them at `site/adjust.json` (gitignored) before running `build-pkg.sh`.
+Because the web app sends the label template in every request, site-local layout preferences (e.g. dropping an unused signature row, enlarging the patient block) must be applied bridge-side. Rules live in a JSON file — `--adjust PATH`, or `/usr/local/etc/dymo-bridge/adjust.json` if present; without one, labels render exactly as sent. See `examples/kipu-specimen-adjust.json` for a working example (Kipu specimen labels) and the schema comment in `Sources/DymoBridge/TemplateAdjust.swift`. To bake site rules into your installer pkg, put them at `site/adjust.json` (gitignored) before running `build-pkg.sh` — the pkg is then named `DymoBridge-<ver>-<suffix>.pkg` (suffix from `site/suffix`, default `site`) so it can't be confused with a vanilla build.
 
 ## Architecture
 

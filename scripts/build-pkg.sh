@@ -55,7 +55,13 @@ pkgbuild --root "$ROOT" --scripts "$SCRIPTS" \
     --install-location / build/core.pkg
 
 echo "==> productbuild"
-PKG="dist/DymoBridge-$VERSION.pkg"
+# A build with site adjustments baked in gets a name suffix so it can't be
+# confused with the vanilla public build (suffix from site/suffix, default "site").
+SUFFIX=""
+if [[ -f site/adjust.json ]]; then
+    SUFFIX="-$(cat site/suffix 2>/dev/null || echo site)"
+fi
+PKG="dist/DymoBridge-$VERSION$SUFFIX.pkg"
 sed "s/__VERSION__/$VERSION/" pkg/distribution.xml > build/distribution.xml
 if [[ -n "$INST_ID" ]]; then
     productbuild --distribution build/distribution.xml \
