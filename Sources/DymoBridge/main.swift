@@ -4,7 +4,7 @@ import Foundation
 // Serves the DYMO DLS web-service API on 127.0.0.1 so browser pages using the
 // DYMO JS framework (e.g. Kipu in Chrome) can print to a LabelWriter via CUPS.
 
-let VERSION = "1.2.0"
+let VERSION = "1.3.0"
 
 struct Config {
     var port: UInt16 = 41951
@@ -17,6 +17,10 @@ struct Config {
     var adjustTemplates = true
     var adjustPath: String? = nil   // nil → use default path if the file exists
     var captureDir = ("~/Library/Logs/DymoBridge" as NSString).expandingTildeInPath
+    // Seconds to wait for CUPS to finish each label before telling the browser it
+    // failed (0 = fire-and-forget). Kept under the DYMO framework's 10 s async
+    // command timeout so a failure is reported, not timed out.
+    var printWait: TimeInterval = 7
 }
 let DEFAULT_ADJUST_PATH = "/usr/local/etc/dymo-bridge/adjust.json"
 
@@ -35,6 +39,7 @@ while !args.isEmpty {
     case "--no-adjust": config.adjustTemplates = false
     case "--adjust":   config.adjustPath = args.removeFirst()
     case "--capture-dir": config.captureDir = args.removeFirst()
+    case "--print-wait": config.printWait = Double(args.removeFirst()) ?? config.printWait
     case "--version":  print(VERSION); exit(0)
     case "--help", "-h":
         print("""
@@ -49,6 +54,9 @@ while !args.isEmpty {
         --no-adjust       disable template adjustments even if a rules file exists
         --no-rotate180    print in template orientation instead of the vendor's 180° rotation
         --capture-dir DIR log/capture directory (default ~/Library/Logs/DymoBridge)
+        --print-wait SEC  seconds to wait for CUPS to finish each label; a job that stalls,
+                          errors or is still queued after SEC is cancelled and reported to the
+                          browser as a failure (default 7; 0 = report success on submission)
         """)
         exit(0)
     default:
@@ -66,7 +74,8 @@ if config.adjustTemplates {
         TemplateAdjust.load(path: DEFAULT_ADJUST_PATH)
     }
 }
-Log.info("dymo-bridge \(VERSION) starting; port=\(config.port) tls=\(config.useTLS) dryRun=\(config.dryRun)")
+PrintQueue.workDir = config.captureDir
+Log.info("dymo-bridge \(VERSION) starting; port=\(config.port) tls=\(config.useTLS) dryRun=\(config.dryRun) printWait=\(config.printWait)s")
 
 let service = DymoService(config: config)
 do {

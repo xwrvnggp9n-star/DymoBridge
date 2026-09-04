@@ -65,6 +65,12 @@ final class DymoService {
 
     // MARK: - PrintLabel
 
+    // The vendor service prints synchronously and only answers once the label
+    // is out, so the framework treats a 200 as "printed". We do the same: hand
+    // the job to CUPS, then watch it until it completes (see
+    // PrintQueue.waitForCompletion). A job that stalls or errors is cancelled
+    // and reported with a non-200, which the framework turns into a JS error
+    // the web app shows to the user.
     private func printLabel(_ req: HTTPRequest) -> HTTPResponse {
         let params = req.formParams
         let printerName = params["printerName"] ?? ""
@@ -80,8 +86,7 @@ final class DymoService {
         ])
 
         guard !labelXml.isEmpty else {
-            Log.error("PrintLabel with empty labelXml")
-            return HTTPResponse(status: 500, body: "false")
+            return printFailure("Label not printed: the request contained no label", captureDir: captureDir)
         }
 
         do {
@@ -93,34 +98,75 @@ final class DymoService {
 
             let queues = PrintQueue.discover()
             guard let target = config.queueOverride.map({ o in queues.first { $0.name == o } }) ?? PrintQueue.match(printerName: printerName, queues: queues) else {
-                Log.error("no DYMO CUPS queue found for printer '\(printerName)'")
-                lastPrintStatus = "FAILED: no CUPS queue"
-                return HTTPResponse(status: 500, body: "false")
+                return printFailure("Label not printed: no DYMO print queue found for printer '\(printerName)'. "
+                                    + "Is the LabelWriter listed in System Settings > Printers & Scanners?", captureDir: captureDir)
             }
             let media = PrintQueue.mediaKeyword(labelWidthTwips: label.dieCutWidthTwips,
                                                 labelHeightTwips: label.dieCutHeightTwips)
+            let verify = config.printWait > 0 && !config.dryRun
 
-            var allOK = true
+            // A paused/stopped queue prints nothing until someone resumes it; say so
+            // before submitting anything (so nothing is left queued to print twice).
+            if verify, let printer = PrintQueue.printerStatus(queue: target.name),
+               printer.state == PrinterStatus.stopped || !printer.acceptingJobs {
+                return printFailure(PrintQueue.pausedMessage(queue: target.name, printer: printer), captureDir: captureDir)
+            }
+
+            var jobs: [String] = []
             for (i, record) in records.enumerated() {
                 var png = try LabelRenderer.render(label: label, record: record)
                 if config.rotate180 { png = try LabelRenderer.rotate180(png: png) }
                 let pngPath = (captureDir as NSString).appendingPathComponent("rendered-\(i).png")
                 try png.write(to: URL(fileURLWithPath: pngPath))
-                let ok = PrintQueue.submit(pngPath: pngPath, queue: target.name, media: media,
-                                           copies: printParams.copies, title: printParams.jobTitle,
-                                           dryRun: config.dryRun)
-                allOK = allOK && ok
+                switch PrintQueue.submit(pngPath: pngPath, queue: target.name, media: media,
+                                         copies: printParams.copies, title: printParams.jobTitle,
+                                         dryRun: config.dryRun) {
+                case .failed(let why):
+                    return printFailure("Label not printed: the print queue \(target.name) refused the job (\(why))"
+                                        + progress(i, of: records.count), captureDir: captureDir)
+                case .dryRun:
+                    jobs.append("dry-run")
+                case .submitted(let jobId):
+                    guard verify, let jobId = jobId else {
+                        jobs.append(jobId.map(String.init) ?? "?")
+                        continue
+                    }
+                    switch PrintQueue.waitForCompletion(jobId: jobId, queue: target.name,
+                                                        timeout: config.printWait, copies: printParams.copies) {
+                    case .printed, .unverified:
+                        jobs.append("\(jobId)")
+                    case .failed(let why):
+                        return printFailure(why + progress(i, of: records.count), captureDir: captureDir)
+                    }
+                }
             }
-            lastPrintStatus = allOK
-                ? "OK \(Date()) — \(records.count) label(s) to \(target.name) media=\(media)"
-                : "FAILED submitting to \(target.name)"
-            Log.info("PrintLabel: \(records.count) label(s), paper='\(label.paperName)', media=\(media), queue=\(target.name), ok=\(allOK)")
-            return HTTPResponse(body: allOK ? "true" : "false")
+            let jobList = jobs.joined(separator: ",")
+            lastPrintStatus = "OK \(Date()) — \(records.count) label(s) to \(target.name) media=\(media) jobs=\(jobList)\(verify ? " (verified)" : "")"
+            Log.info("PrintLabel: \(records.count) label(s), paper='\(label.paperName)', media=\(media), queue=\(target.name), jobs=\(jobList), ok=true")
+            writeResult("OK jobs=\(jobList)", captureDir: captureDir)
+            return HTTPResponse(body: "true")
         } catch {
-            Log.error("PrintLabel failed: \(error)")
-            lastPrintStatus = "FAILED: \(error)"
-            return HTTPResponse(status: 500, body: "false")
+            return printFailure("Label not printed: \(error)", captureDir: captureDir)
         }
+    }
+
+    private func progress(_ done: Int, of total: Int) -> String {
+        total > 1 ? " (\(done) of \(total) labels printed before the error)" : ""
+    }
+
+    // Non-200 makes the DYMO framework throw. Its error text is built from the
+    // response body (the part before the first colon becomes the title line)
+    // plus the HTTP reason phrase, so both carry the message.
+    private func printFailure(_ message: String, captureDir: String) -> HTTPResponse {
+        Log.error("PrintLabel failed: \(message)")
+        lastPrintStatus = "FAILED \(Date()) — \(message)"
+        writeResult("FAILED \(message)", captureDir: captureDir)
+        return HTTPResponse(status: 500, reason: "Label Not Printed", body: message)
+    }
+
+    private func writeResult(_ text: String, captureDir: String) {
+        try? (text + "\n").write(toFile: (captureDir as NSString).appendingPathComponent("result.txt"),
+                                 atomically: true, encoding: .utf8)
     }
 
     // MARK: - RenderLabel (browser-side label preview)
@@ -155,6 +201,7 @@ final class DymoService {
         <p>Native DYMO web-service replacement. Status: <b>running</b></p>
         <ul>\(queueList)</ul>
         <p>Last print: \(escapeXML(lastPrintStatus))</p>
+        <p>Print check: \(config.printWait > 0 ? "on — each label must leave the queue within \(Int(config.printWait.rounded())) s" : "off (fire-and-forget)")</p>
         <p>Logs &amp; captures: \(config.captureDir)</p>
         </body></html>
         """

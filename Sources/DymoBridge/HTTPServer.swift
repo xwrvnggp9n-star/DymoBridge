@@ -62,12 +62,14 @@ extension String {
 
 struct HTTPResponse {
     var status = 200
+    var reason: String? = nil   // custom reason phrase (the DYMO framework shows xhr.statusText in its errors)
     var contentType = "text/plain; charset=utf-8"
     var headers: [String: String] = [:]
     var body = Data()
 
-    init(status: Int = 200, contentType: String = "text/plain; charset=utf-8", body: String) {
+    init(status: Int = 200, reason: String? = nil, contentType: String = "text/plain; charset=utf-8", body: String) {
         self.status = status
+        self.reason = reason
         self.contentType = contentType
         self.body = body.data(using: .utf8) ?? Data()
     }
@@ -106,30 +108,39 @@ private final class HTTPHandler: ChannelInboundHandler {
             head = nil
             body = Data()
 
-            let response = handler(request)
-
-            var headers = HTTPHeaders()
-            headers.add(name: "Content-Type", value: response.contentType)
-            headers.add(name: "Content-Length", value: "\(response.body.count)")
-            headers.add(name: "Access-Control-Allow-Origin", value: "*")
-            headers.add(name: "Access-Control-Allow-Methods", value: "GET, POST, OPTIONS")
-            headers.add(name: "Access-Control-Allow-Headers", value: "Content-Type, Accept, Cache-Control, Pragma")
-            for (k, v) in response.headers { headers.add(name: k, value: v) }
-
-            let respHead = HTTPResponseHead(version: h.version,
-                                            status: HTTPResponseStatus(statusCode: response.status),
-                                            headers: headers)
-            let keepAlive = h.isKeepAlive
-            context.write(wrapOutboundOut(.head(respHead)), promise: nil)
-            var buffer = context.channel.allocator.buffer(capacity: response.body.count)
-            buffer.writeBytes(response.body)
-            context.write(wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
-            let endPromise: EventLoopPromise<Void>? = keepAlive ? nil : context.eventLoop.makePromise()
-            if let p = endPromise {
-                p.futureResult.whenComplete { _ in context.close(promise: nil) }
+            // Handlers can block for seconds (PrintLabel waits for CUPS to finish
+            // the job), so run them off the event loop and hop back to write.
+            let handler = self.handler
+            let loop = context.eventLoop
+            DispatchQueue.global(qos: .userInitiated).async {
+                let response = handler(request)
+                loop.execute { self.write(response, for: h, context: context) }
             }
-            context.writeAndFlush(wrapOutboundOut(.end(nil)), promise: endPromise)
         }
+    }
+
+    private func write(_ response: HTTPResponse, for h: HTTPRequestHead, context: ChannelHandlerContext) {
+        var headers = HTTPHeaders()
+        headers.add(name: "Content-Type", value: response.contentType)
+        headers.add(name: "Content-Length", value: "\(response.body.count)")
+        headers.add(name: "Access-Control-Allow-Origin", value: "*")
+        headers.add(name: "Access-Control-Allow-Methods", value: "GET, POST, OPTIONS")
+        headers.add(name: "Access-Control-Allow-Headers", value: "Content-Type, Accept, Cache-Control, Pragma")
+        for (k, v) in response.headers { headers.add(name: k, value: v) }
+
+        let status: HTTPResponseStatus = response.reason.map { .custom(code: UInt(response.status), reasonPhrase: $0) }
+            ?? HTTPResponseStatus(statusCode: response.status)
+        let respHead = HTTPResponseHead(version: h.version, status: status, headers: headers)
+        let keepAlive = h.isKeepAlive
+        context.write(wrapOutboundOut(.head(respHead)), promise: nil)
+        var buffer = context.channel.allocator.buffer(capacity: response.body.count)
+        buffer.writeBytes(response.body)
+        context.write(wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
+        let endPromise: EventLoopPromise<Void>? = keepAlive ? nil : context.eventLoop.makePromise()
+        if let p = endPromise {
+            p.futureResult.whenComplete { _ in context.close(promise: nil) }
+        }
+        context.writeAndFlush(wrapOutboundOut(.end(nil)), promise: endPromise)
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
